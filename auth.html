@@ -1,19 +1,19 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>OAuth Callback</title>
+  <meta charset="UTF-8">
+  <title>Autenticando con GitHub...</title>
 </head>
 <body>
+  <h2>Procesando autenticación con GitHub...</h2>
   <script>
     const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-
-    if (code) {
-      // Send the code to your backend for exchange
-      window.opener.postMessage({ type: "github_code", code: code }, "*");
+    const code = params.get('code');
+    if (code && window.opener) {
+      window.opener.postMessage({ type: 'github_code', code }, '*');
       window.close();
     } else {
-      document.body.innerHTML = "<h2>Authorization failed</h2>";
+      document.body.innerHTML = '<h2>Error: No se pudo obtener el código de autenticación.</h2>';
     }
   </script>
 </body>
