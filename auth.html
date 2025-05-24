@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>OAuth Callback</title>
+</head>
+<body>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+
+    if (code) {
+      // Send the code to your backend for exchange
+      window.opener.postMessage({ type: "github_code", code: code }, "*");
+      window.close();
+    } else {
+      document.body.innerHTML = "<h2>Authorization failed</h2>";
+    }
+  </script>
+</body>
+</html>
