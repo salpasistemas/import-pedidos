@@ -8,13 +8,150 @@
     #dropzone {
       width: 300px; height: 150px;
       border: 2px dashed #888; margin: auto; line-height: 150px;
-      color: #888;
+      color: #888; cursor: pointer;
+    }
+    #dropzone:hover {
+      background-color: #f0f0f0;
+      border-color: #555;
+    }
+    #debug {
+      margin-top: 30px;
+      text-align: left;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+      background: #f5f5f5;
+      padding: 20px;
+      border-radius: 5px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 300px;
+      overflow-y: auto;
     }
   </style>
 </head>
 <body>
   <h1>Subí tu Excel para importar pedidos</h1>
-  <div id="dropzone">Soltá el archivo Excel acá</div>
-  <script src="scripts/subir.js"></script>
+  <div id="dropzone">Soltá el archivo Excel acá (o hacé clic)</div>
+  
+  <div id="debug">
+    <strong>Debug Log:</strong><br>
+    <div id="log"></div>
+  </div>
+
+  <script>
+    // Función para agregar logs
+    function addLog(message) {
+      const log = document.getElementById('log');
+      const timestamp = new Date().toLocaleTimeString();
+      log.innerHTML += `[${timestamp}] ${message}<br>`;
+      log.scrollTop = log.scrollHeight;
+      console.log(message);
+    }
+
+    document.getElementById('dropzone').addEventListener('drop', async (e) => {
+      e.preventDefault();
+      addLog('📁 Evento drop detectado');
+      
+      const archivo = e.dataTransfer.files[0];
+      
+      if (!archivo) {
+        addLog('❌ No se seleccionó ningún archivo');
+        alert('No se seleccionó ningún archivo');
+        return;
+      }
+      
+      addLog(`📄 Archivo seleccionado: ${archivo.name} (${archivo.size} bytes)`);
+      
+      // Validar que sea Excel
+      if (!archivo.name.endsWith('.xlsx') && !archivo.name.endsWith('.xls')) {
+        addLog('❌ Archivo no es Excel');
+        alert('Por favor selecciona un archivo Excel (.xlsx o .xls)');
+        return;
+      }
+      
+      const repo = 'salpasistemas/import-pedidos';
+      const path = `uploaded/${archivo.name}`;
+      const branch = 'main';
+      const token = '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';
+      
+      addLog(`🔄 Configuración: repo=${repo}, path=${path}`);
+      
+      try {
+        addLog('🔄 Convirtiendo archivo a base64...');
+        const contenido = await archivo.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(contenido)));
+        addLog(`✅ Base64 generado (${base64.length} caracteres)`);
+        
+        addLog('🌐 Enviando petición a GitHub API...');
+        const url = `https://api.github.com/repos/${repo}/contents/${path}`;
+        addLog(`📡 URL: ${url}`);
+        
+        const response = await fetch(url, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `token ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: `Subir ${archivo.name}`,
+            content: base64,
+            branch: branch
+          })
+        });
+        
+        addLog(`📊 Respuesta HTTP: ${response.status} ${response.statusText}`);
+        
+        if (response.ok) {
+          const result = await response.json();
+          addLog(`✅ ¡Éxito! Archivo subido: ${result.content.name}`);
+          alert(`¡Archivo ${archivo.name} subido correctamente!`);
+          
+          // Abrir Actions
+          setTimeout(() => {
+            window.open(`https://github.com/${repo}/actions`, '_blank');
+          }, 1000);
+          
+        } else {
+          const error = await response.json();
+          addLog(`❌ Error: ${JSON.stringify(error)}`);
+          alert(`Error al subir archivo: ${error.message}`);
+        }
+        
+      } catch (error) {
+        addLog(`💥 Excepción: ${error.message}`);
+        console.error('Error completo:', error);
+        alert(`Error: ${error.message}`);
+      }
+    });
+
+    document.getElementById('dropzone').addEventListener('dragover', (e) => {
+      e.preventDefault();
+    });
+
+    // Click para seleccionar archivo
+    document.getElementById('dropzone').addEventListener('click', () => {
+      addLog('🖱️ Click detectado - Abriendo selector de archivos');
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.xlsx,.xls';
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          addLog(`📁 Archivo seleccionado por click: ${file.name}`);
+          // Simular drop event
+          const fakeEvent = {
+            preventDefault: () => {},
+            dataTransfer: { files: [file] }
+          };
+          document.getElementById('dropzone').dispatchEvent(new CustomEvent('drop', { detail: fakeEvent }));
+        }
+      };
+      input.click();
+    });
+
+    addLog('🚀 JavaScript cargado correctamente');
+  </script>
 </body>
 </html>
