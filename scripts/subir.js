@@ -5,7 +5,7 @@ document.getElementById('dropzone').addEventListener('drop', async (e) => {
   const repo = 'salpasistemas/import-pedidos';
   const path = `uploaded/${archivo.name}`;
   const branch = 'main';
-  const token = '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';
+  const token = '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';
 
   const contenido = await archivo.arrayBuffer();
   const base64 = btoa(String.fromCharCode(...new Uint8Array(contenido)));
