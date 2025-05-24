@@ -18,7 +18,7 @@ document.getElementById('dropzone').addEventListener('drop', async (e) => {
   const repo = 'salpasistemas/import-pedidos';
   const path = `uploaded/${archivo.name}`; // ✅ Template literal correcto
   const branch = 'main';
-  const token = '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';
+  const token = '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';
   
   try {
     // Convertir archivo a base64
