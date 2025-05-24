@@ -1,31 +1,57 @@
 name: Importar Pedidos desde Excel
 
+# Trigger más amplio para asegurar que se ejecute
 on:
   push:
+    branches: [ main ]
     paths:
-      - 'uploaded/*.xlsx'
-      - 'uploaded/**/*.xlsx'
+      - 'uploaded/*'
+      - 'uploaded/**'
+  # También agregar trigger manual para testing
+  workflow_dispatch:
 
 jobs:
   importar:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Clonar repositorio
-        uses: actions/checkout@v3
-
-      - name: Configurar Python
+      - name: 📁 Clonar repositorio
+        uses: actions/checkout@v4
+        
+      - name: 🔍 Verificar archivos subidos
+        run: |
+          echo "=== Contenido del repositorio ==="
+          ls -la
+          echo "=== Contenido de uploaded/ ==="
+          if [ -d "uploaded" ]; then
+            ls -la uploaded/
+            echo "=== Archivos Excel encontrados ==="
+            find uploaded/ -name "*.xlsx" -o -name "*.xls" | head -5
+          else
+            echo "❌ Carpeta uploaded/ no existe"
+          fi
+        
+      - name: 🐍 Configurar Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.10
-
-      - name: Instalar dependencias
-        run: pip install -r requirements.txt
-
-      - name: Procesar Excel y enviar a Odoo
+          python-version: '3.10'
+          
+      - name: 📦 Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          
+      - name: 🔄 Procesar Excel y enviar a Odoo
         run: python process_excel.py
         env:
           ODOO_URL: ${{ secrets.ODOO_URL }}
           ODOO_DB: ${{ secrets.ODOO_DB }}
           ODOO_USER: ${{ secrets.ODOO_USER }}
           ODOO_API_KEY: ${{ secrets.ODOO_API_KEY }}
+          
+      - name: 🧹 Limpiar archivos procesados (opcional)
+        run: |
+          echo "Archivos procesados exitosamente"
+          # Opcional: rm -rf uploaded/*.xlsx uploaded/*.xls
