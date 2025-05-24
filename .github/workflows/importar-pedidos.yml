@@ -3,7 +3,8 @@ name: Importar Pedidos desde Excel
 on:
   push:
     paths:
-      - 'uploaded/**.xlsx'
+      - 'uploaded/*.xlsx'
+      - 'uploaded/**/*.xlsx'
 
 jobs:
   importar:
