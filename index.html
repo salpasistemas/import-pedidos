@@ -28,33 +28,19 @@
       max-height: 300px;
       overflow-y: auto;
     }
-    #loginBtn {
-      margin-bottom: 20px;
-      padding: 10px 20px;
-      background-color: #2ea44f;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    #loginBtn:hover {
-      background-color: #279f43;
-    }
   </style>
 </head>
 <body>
   <h1>Subí tu Excel para importar pedidos</h1>
-  <button id="loginBtn">Iniciar sesión con GitHub</button>
   <div id="dropzone">Soltá el archivo Excel acá (o hacé clic)</div>
-
+  
   <div id="debug">
     <strong>Debug Log:</strong><br>
     <div id="log"></div>
   </div>
 
   <script>
-    let githubToken = null;
-
+    // Función para agregar logs
     function addLog(message) {
       const log = document.getElementById('log');
       const timestamp = new Date().toLocaleTimeString();
@@ -63,106 +49,109 @@
       console.log(message);
     }
 
-    document.getElementById('loginBtn').addEventListener('click', () => {
-      const clientId = 'Ov23liqDwUItKpaqphsp';
-      const redirectUri = encodeURIComponent('https://salpasistemas.github.io/import-pedidos/auth.html');
-      const scope = encodeURIComponent('repo');
-      const url = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=${scope}`;
-      window.open(url, '_blank', 'width=600,height=700');
-    });
-
-    window.addEventListener('message', async (event) => {
-      if (event.data.type === 'github_code') {
-        const code = event.data.code;
-        addLog(`🔐 Código OAuth recibido: ${code}`);
-
-        const response = await fetch('https://your-backend.com/exchange-code', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code })
-        });
-
-        const data = await response.json();
-        githubToken = data.access_token;
-
-        if (githubToken) {
-          addLog('✅ Token de acceso recibido');
-        } else {
-          addLog('❌ Falló el intercambio del token');
-          alert('Error al iniciar sesión con GitHub');
-        }
-      }
-    });
-
-    async function subirArchivo(archivo) {
-      if (!githubToken) {
-        alert('Por favor iniciá sesión con GitHub primero');
+    document.getElementById('dropzone').addEventListener('drop', async (e) => {
+      e.preventDefault();
+      addLog('📁 Evento drop detectado');
+      
+      const archivo = e.dataTransfer.files[0];
+      
+      if (!archivo) {
+        addLog('❌ No se seleccionó ningún archivo');
+        alert('No se seleccionó ningún archivo');
         return;
       }
-
+      
+      addLog(`📄 Archivo seleccionado: ${archivo.name} (${archivo.size} bytes)`);
+      
+      // Validar que sea Excel
+      if (!archivo.name.endsWith('.xlsx') && !archivo.name.endsWith('.xls')) {
+        addLog('❌ Archivo no es Excel');
+        alert('Por favor selecciona un archivo Excel (.xlsx o .xls)');
+        return;
+      }
+      
       const repo = 'salpasistemas/import-pedidos';
       const path = `uploaded/${archivo.name}`;
       const branch = 'main';
-
-      addLog(`📄 Subiendo archivo: ${archivo.name}`);
-      const contenido = await archivo.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(contenido)));
-
-      const url = `https://api.github.com/repos/${repo}/contents/${path}`;
-      const response = await fetch(url, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `token ${githubToken}`,
-          'Accept': 'application/vnd.github.v3+json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          message: `Subir ${archivo.name}`,
-          content: base64,
-          branch: branch
-        })
-      });
-
-      if (response.ok) {
-        addLog('✅ Archivo subido correctamente');
-        alert(`Archivo ${archivo.name} subido correctamente`);
-        setTimeout(() => {
-          window.open(`https://github.com/${repo}/actions`, '_blank');
-        }, 1000);
-      } else {
-        const error = await response.json();
-        addLog(`❌ Error al subir: ${error.message}`);
+      const token = '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';
+      
+      addLog(`🔄 Configuración: repo=${repo}, path=${path}`);
+      
+      try {
+        addLog('🔄 Convirtiendo archivo a base64...');
+        const contenido = await archivo.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(contenido)));
+        addLog(`✅ Base64 generado (${base64.length} caracteres)`);
+        
+        addLog('🌐 Enviando petición a GitHub API...');
+        const url = `https://api.github.com/repos/${repo}/contents/${path}`;
+        addLog(`📡 URL: ${url}`);
+        
+        const response = await fetch(url, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `token ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: `Subir ${archivo.name}`,
+            content: base64,
+            branch: branch
+          })
+        });
+        
+        addLog(`📊 Respuesta HTTP: ${response.status} ${response.statusText}`);
+        
+        if (response.ok) {
+          const result = await response.json();
+          addLog(`✅ ¡Éxito! Archivo subido: ${result.content.name}`);
+          alert(`¡Archivo ${archivo.name} subido correctamente!`);
+          
+          // Abrir Actions
+          setTimeout(() => {
+            window.open(`https://github.com/${repo}/actions`, '_blank');
+          }, 1000);
+          
+        } else {
+          const error = await response.json();
+          addLog(`❌ Error: ${JSON.stringify(error)}`);
+          alert(`Error al subir archivo: ${error.message}`);
+        }
+        
+      } catch (error) {
+        addLog(`💥 Excepción: ${error.message}`);
+        console.error('Error completo:', error);
         alert(`Error: ${error.message}`);
       }
-    }
-
-    document.getElementById('dropzone').addEventListener('drop', async (e) => {
-      e.preventDefault();
-      const archivo = e.dataTransfer.files[0];
-      if (!archivo) return;
-      if (!archivo.name.endsWith('.xlsx') && !archivo.name.endsWith('.xls')) {
-        alert('Solo se permiten archivos .xlsx o .xls');
-        return;
-      }
-      subirArchivo(archivo);
     });
 
     document.getElementById('dropzone').addEventListener('dragover', (e) => {
       e.preventDefault();
     });
 
+    // Click para seleccionar archivo
     document.getElementById('dropzone').addEventListener('click', () => {
+      addLog('🖱️ Click detectado - Abriendo selector de archivos');
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = '.xlsx,.xls';
       input.onchange = (e) => {
         const file = e.target.files[0];
-        if (file) subirArchivo(file);
+        if (file) {
+          addLog(`📁 Archivo seleccionado por click: ${file.name}`);
+          // Simular drop event
+          const fakeEvent = {
+            preventDefault: () => {},
+            dataTransfer: { files: [file] }
+          };
+          document.getElementById('dropzone').dispatchEvent(new CustomEvent('drop', { detail: fakeEvent }));
+        }
       };
       input.click();
     });
 
-    addLog('🚀 JavaScript cargado');
+    addLog('🚀 JavaScript cargado correctamente');
   </script>
 </body>
 </html>
