@@ -49,7 +49,11 @@ export default async function handler(req, res) {
       });
     }
 
-    console.log('=== ODOO AUTH ===');
+    console.log('=== ODOO CONNECTION INFO ===');
+    console.log('URL:', ODOO_URL);
+    console.log('DB:', ODOO_DB);
+    console.log('Username:', ODOO_USERNAME);
+
     // 1) Autenticación RPC
     const common = xmlrpc.createSecureClient({ url: `${ODOO_URL}/xmlrpc/2/common` });
     const uid = await new Promise((resolve, reject) => {
@@ -60,18 +64,72 @@ export default async function handler(req, res) {
         {}
       ], (err, userId) => err ? reject(err) : resolve(userId));
     });
+    
+    if (!uid) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication failed - invalid credentials'
+      });
+    }
+    
     console.log('✅ Authenticated UID:', uid);
 
     // 2) Cliente para llamadas de objeto
     const models = xmlrpc.createSecureClient({ url: `${ODOO_URL}/xmlrpc/2/object` });
 
+    // 2.5) Verificar permisos del usuario
+    console.log('=== CHECKING USER PERMISSIONS ===');
+    try {
+      const canCreate = await new Promise((resolve, reject) => {
+        models.methodCall('execute_kw', [
+          ODOO_DB,
+          uid,
+          ODOO_PASSWORD,
+          'sale.order',
+          'check_access_rights',
+          ['create']
+        ], (err, result) => err ? reject(err) : resolve(result));
+      });
+      console.log('Create permission check result:', canCreate);
+      
+      if (!canCreate) {
+        return res.status(403).json({
+          success: false,
+          error: 'User does not have permission to create sale orders'
+        });
+      }
+    } catch (permError) {
+      console.error('Permission check error:', permError);
+      return res.status(403).json({
+        success: false,
+        error: 'Permission check failed: ' + permError.message
+      });
+    }
+
     // 3) Procesar cada order
     console.log(`=== PROCESSING ${orders.length} ORDERS ===`);
     const results = [];
+    
     for (let i = 0; i < orders.length; i++) {
       const order = orders[i];
-      console.log(`-- Order ${i+1}`, order);
+      console.log(`-- Processing Order ${i+1}:`, JSON.stringify(order, null, 2));
+      
       try {
+        // Prepare order data with required fields
+        const orderData = {
+          partner_id: order.partner_id || 1, // Default partner if not specified
+          order_line: order.order_line?.map(line => [0, 0, {
+            product_id: line.product_id || 1,
+            product_uom_qty: line.product_uom_qty || 1,
+            price_unit: line.price_unit || 0,
+            name: line.name || 'Imported Product' // Product name is often required
+          }]) || [],
+          note: order.note || 'Imported from Excel',
+          state: 'draft' // Ensure it starts as draft
+        };
+        
+        console.log(`-- Prepared Order Data ${i+1}:`, JSON.stringify(orderData, null, 2));
+        
         const orderId = await new Promise((resolve, reject) => {
           models.methodCall('execute_kw', [
             ODOO_DB,
@@ -79,14 +137,29 @@ export default async function handler(req, res) {
             ODOO_PASSWORD,
             'sale.order',
             'create',
-            [order]
-          ], (err, id) => err ? reject(err) : resolve(id));
+            [orderData]
+          ], (err, id) => {
+            if (err) {
+              console.error(`Order ${i+1} creation error:`, err);
+              reject(err);
+            } else {
+              resolve(id);
+            }
+          });
         });
+        
         console.log(`✅ Created sale.order ID=${orderId}`);
         results.push({ index: i, success: true, orderId });
+        
       } catch (err) {
         console.error(`❌ Order ${i+1} error:`, err.message);
-        results.push({ index: i, success: false, error: err.message });
+        console.error('Full error details:', err);
+        results.push({ 
+          index: i, 
+          success: false, 
+          error: err.message,
+          details: err.faultString || err.toString()
+        });
       }
     }
 
@@ -97,7 +170,8 @@ export default async function handler(req, res) {
       processed: orders.length,
       successful,
       results,
-      message: `Processed ${successful} of ${orders.length} orders`
+      message: `Processed ${successful} of ${orders.length} orders`,
+      uid: uid // Include UID for debugging
     });
 
   } catch (error) {
@@ -105,7 +179,7 @@ export default async function handler(req, res) {
     return res.status(500).json({
       success: false,
       error: error.message,
-      details: 'Check server logs'
+      details: error.stack || 'Check server logs'
     });
   }
 }
