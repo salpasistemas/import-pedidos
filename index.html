@@ -171,6 +171,12 @@
       border: 1px solid #ff9800;
     }
 
+    .status.warning {
+      background: #fff3e0;
+      color: #e65100;
+      border: 1px solid #ff9800;
+    }
+
     .spinner {
       display: inline-block;
       width: 20px;
@@ -226,6 +232,16 @@
       overflow-y: auto;
     }
 
+    .sheet-info {
+      margin-top: 15px;
+      padding: 10px;
+      background: #f0f8ff;
+      border-radius: 8px;
+      font-size: 14px;
+      text-align: left;
+      border: 1px solid #b0d4f1;
+    }
+
     #fileInput {
       display: none;
     }
@@ -238,6 +254,7 @@
   <div class="container">
 
         <h2>Subir Pedidos</h2>
+        <p>El archivo debe contener una hoja llamada <strong>"AUX_IMPORT"</strong></p>
         <div class="upload-zone" id="uploadZone">
             <div class="upload-icon">📁</div>
             <div class="upload-text">Haz clic o arrastra tu archivo Excel</div>
@@ -255,6 +272,8 @@
         <div class="progress-bar" id="progressBar" style="display: none;">
             <div class="progress-fill" id="progressFill"></div>
         </div>
+
+        <div class="sheet-info" id="sheetInfo" style="display: none;"></div>
 
 <!-- <button class="toggle-debug" onclick="toggleDebug()">Log</button> -->
         <div class="debug-info" id="debugInfo"></div>
@@ -274,6 +293,7 @@
         const progressBar = document.getElementById('progressBar');
         const progressFill = document.getElementById('progressFill');
         const debugInfo = document.getElementById('debugInfo');
+        const sheetInfo = document.getElementById('sheetInfo');
         
         function log(message, data = null) {
             console.log(message, data);
@@ -317,7 +337,7 @@
             handleFile(e.target.files[0]);
         });
         
-        function handleFile(file) {
+        async function handleFile(file) {
             if (!file) return;
             
             log('File selected:', {
@@ -332,15 +352,73 @@
                 return;
             }
             
-            selectedFile = file;
-            uploadZone.classList.add('file-selected');
-            uploadZone.innerHTML = `
-                <div class="upload-icon">✅</div>
-                <div class="upload-text">Archivo seleccionado</div>
-                <div class="upload-hint">${file.name}</div>
-            `;
-            processBtn.disabled = false;
-            hideStatus();
+            // Validate that AUX_IMPORT sheet exists
+            try {
+                const workbook = await readWorkbook(file);
+                const sheetNames = workbook.SheetNames;
+                
+                log('Available sheets:', sheetNames);
+                
+                // Show sheet information
+                sheetInfo.innerHTML = `
+                    <strong>Hojas encontradas:</strong> ${sheetNames.join(', ')}<br>
+                    <strong>Hoja a procesar:</strong> ${sheetNames.includes('AUX_IMPORT') ? 'AUX_IMPORT ✅' : 'No encontrada ❌'}
+                `;
+                sheetInfo.style.display = 'block';
+                
+                if (!sheetNames.includes('AUX_IMPORT')) {
+                    showStatus('error', '❌ El archivo no contiene la hoja "AUX_IMPORT". Hojas disponibles: ' + sheetNames.join(', '));
+                    return;
+                }
+                
+                // Check if AUX_IMPORT has data
+                const worksheet = workbook.Sheets['AUX_IMPORT'];
+                const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:A1');
+                const rowCount = range.e.r - range.s.r + 1;
+                
+                if (rowCount <= 1) {
+                    showStatus('warning', '⚠️ La hoja "AUX_IMPORT" parece estar vacía o solo contiene encabezados');
+                    return;
+                }
+                
+                log('AUX_IMPORT sheet validation:', {
+                    hasSheet: true,
+                    rowCount: rowCount,
+                    range: worksheet['!ref']
+                });
+                
+                selectedFile = file;
+                uploadZone.classList.add('file-selected');
+                uploadZone.innerHTML = `
+                    <div class="upload-icon">✅</div>
+                    <div class="upload-text">Archivo válido</div>
+                    <div class="upload-hint">${file.name} - Hoja: AUX_IMPORT (${rowCount-1} filas de datos)</div>
+                `;
+                processBtn.disabled = false;
+                hideStatus();
+                
+            } catch (error) {
+                log('File validation error:', error);
+                showStatus('error', '❌ Error al validar el archivo: ' + error.message);
+                return;
+            }
+        }
+        
+        function readWorkbook(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        resolve(workbook);
+                    } catch (error) {
+                        reject(new Error('No se pudo leer el archivo Excel: ' + error.message));
+                    }
+                };
+                reader.onerror = () => reject(new Error('Error al leer el archivo'));
+                reader.readAsArrayBuffer(file);
+            });
         }
         
         async function processFile() {
@@ -350,13 +428,13 @@
             
             processBtn.disabled = true;
             processBtn.innerHTML = '<div class="spinner"></div>Procesando...';
-            showStatus('processing', '⏳ Leyendo archivo Excel...');
+            showStatus('processing', '⏳ Leyendo hoja AUX_IMPORT...');
             progressBar.style.display = 'block';
             setProgress(10);
             
             try {
-                // Read Excel file
-                log('Reading Excel file...');
+                // Read Excel file - specifically AUX_IMPORT sheet
+                log('Reading AUX_IMPORT sheet...');
                 const excelData = await readExcelFile(selectedFile);
                 log('Excel data read successfully:', {
                     rows: excelData.length,
@@ -463,9 +541,23 @@
                     try {
                         const data = new Uint8Array(e.target.result);
                         const workbook = XLSX.read(data, { type: 'array' });
-                        const sheetName = workbook.SheetNames[0];
-                        const worksheet = workbook.Sheets[sheetName];
+                        
+                        // Check if AUX_IMPORT sheet exists
+                        if (!workbook.SheetNames.includes('AUX_IMPORT')) {
+                            throw new Error('La hoja "AUX_IMPORT" no fue encontrada en el archivo');
+                        }
+                        
+                        // Read only the AUX_IMPORT sheet
+                        const worksheet = workbook.Sheets['AUX_IMPORT'];
                         const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                        
+                        log('AUX_IMPORT sheet processed:', {
+                            totalSheets: workbook.SheetNames.length,
+                            allSheets: workbook.SheetNames,
+                            processedSheet: 'AUX_IMPORT',
+                            dataRows: jsonData.length
+                        });
+                        
                         resolve(jsonData);
                     } catch (error) {
                         reject(new Error('No se pudo leer el archivo Excel: ' + error.message));
