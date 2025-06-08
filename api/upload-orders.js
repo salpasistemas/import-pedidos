@@ -1,6 +1,8 @@
 // api/upload-orders.js
+import xmlrpc from 'xmlrpc';
+
 export default async function handler(req, res) {
-  // Enhanced CORS configuration
+  // CORS
   const allowedOrigins = [
     'https://salpasistemas.github.io',
     'http://localhost:3000',
@@ -23,103 +25,68 @@ export default async function handler(req, res) {
     // Validar body
     const { orders } = req.body || {};
     if (!orders || !Array.isArray(orders) || orders.length === 0) {
-      throw new Error('Invalid orders array in request body');
+      return res.status(400).json({ success: false, error: 'Invalid orders array' });
     }
 
-    // Variables de entorno
-    const ODOO_URL      = process.env.ODOO_URL;
-    const ODOO_DB       = process.env.ODOO_DB;
-    const ODOO_USERNAME = process.env.ODOO_USERNAME;
-    const ODOO_PASSWORD = process.env.ODOO_PASSWORD;
-    const missing = ['ODOO_URL','ODOO_DB','ODOO_USERNAME','ODOO_PASSWORD']
-      .filter(v => !process.env[v]);
+    // Leer variables de entorno
+    const { ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD } = process.env;
+    const missing = ['ODOO_URL','ODOO_DB','ODOO_USERNAME','ODOO_PASSWORD'].filter(v => !process.env[v]);
     if (missing.length) {
-      return res.status(500).json({ success: false, error: `Missing env vars: ${missing.join(', ')}` });
+      return res.status(500).json({
+        success: false,
+        error: `Missing env vars: ${missing.join(', ')}`
+      });
     }
 
     console.log('=== ODOO AUTH ===');
-    const authUrl = `${ODOO_URL}/web/session/authenticate`;
-    const authPayload = {
-      jsonrpc: "2.0",
-      method: "call",
-      params: { db: ODOO_DB, login: ODOO_USERNAME, password: ODOO_PASSWORD }
-    };
-    const authResponse = await fetch(authUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(authPayload)
+    // 1) Autenticación RPC
+    const common = xmlrpc.createSecureClient({ url: `${ODOO_URL}/xmlrpc/2/common` });
+    const uid = await new Promise((resolve, reject) => {
+      common.methodCall('authenticate', [
+        ODOO_DB,
+        ODOO_USERNAME,
+        ODOO_PASSWORD,
+        {}
+      ], (err, userId) => err ? reject(err) : resolve(userId));
     });
+    console.log('✅ Authenticated UID:', uid);
 
-    if (!authResponse.ok) {
-      const err = await authResponse.text();
-      throw new Error(`Auth failed: ${authResponse.status} ${err}`);
-    }
+    // 2) Cliente para llamadas de objeto
+    const models = xmlrpc.createSecureClient({ url: `${ODOO_URL}/xmlrpc/2/object` });
 
-    // 1) capturar la cookie de sesión
-    const rawSetCookie = authResponse.headers.get('set-cookie');
-    if (!rawSetCookie) {
-      throw new Error('No se recibió Set-Cookie de Odoo');
-    }
-    // 2) quedarnos solo con session_id=...
-    const sessionCookie = rawSetCookie.split(';')[0];
-    console.log('✅ sessionCookie:', sessionCookie);
-
-    // 3) parsear el JSON
-    const authData = await authResponse.json();
-    if (!authData.result || !authData.result.uid) {
-      throw new Error(`Auth error: ${JSON.stringify(authData.error || authData)}`);
-    }
-    console.log('✅ Authenticated UID:', authData.result.uid);
-
-    // Procesar pedidos
+    // 3) Procesar cada order
     console.log(`=== PROCESSING ${orders.length} ORDERS ===`);
     const results = [];
     for (let i = 0; i < orders.length; i++) {
       const order = orders[i];
       console.log(`-- Order ${i+1}`, order);
       try {
-        const orderUrl = `${ODOO_URL}/web/dataset/call_kw`;
-        const orderPayload = {
-          jsonrpc: "2.0",
-          method: "call",
-          params: {
-            model: "sale.order",
-            method: "create",
-            args: [order],
-            kwargs: {}
-          }
-        };
-        const orderRes = await fetch(orderUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Cookie': sessionCookie
-          },
-          body: JSON.stringify(orderPayload)
+        const orderId = await new Promise((resolve, reject) => {
+          models.methodCall('execute_kw', [
+            ODOO_DB,
+            uid,
+            ODOO_PASSWORD,
+            'sale.order',
+            'create',
+            [order]
+          ], (err, id) => err ? reject(err) : resolve(id));
         });
-        if (!orderRes.ok) {
-          const text = await orderRes.text();
-          throw new Error(`HTTP ${orderRes.status}: ${text}`);
-        }
-        const orderData = await orderRes.json();
-        if (orderData.error) {
-          throw new Error(orderData.error.message || JSON.stringify(orderData.error));
-        }
-        console.log(`✅ Created sale.order ID=${orderData.result}`);
-        results.push({ index: i, success: true, orderId: orderData.result });
-      } catch (e) {
-        console.error(`❌ Order ${i+1} error:`, e.message);
-        results.push({ index: i, success: false, error: e.message });
+        console.log(`✅ Created sale.order ID=${orderId}`);
+        results.push({ index: i, success: true, orderId });
+      } catch (err) {
+        console.error(`❌ Order ${i+1} error:`, err.message);
+        results.push({ index: i, success: false, error: err.message });
       }
     }
 
+    // 4) Respuesta final
     const successful = results.filter(r => r.success).length;
     return res.status(200).json({
       success: true,
       processed: orders.length,
       successful,
       results,
-      message: `Processed ${successful} of ${orders.length}`
+      message: `Processed ${successful} of ${orders.length} orders`
     });
 
   } catch (error) {
@@ -127,7 +94,7 @@ export default async function handler(req, res) {
     return res.status(500).json({
       success: false,
       error: error.message,
-      details: 'Check function logs'
+      details: 'Check server logs'
     });
   }
 }
