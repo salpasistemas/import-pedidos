@@ -106,7 +106,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 3) Procesar cada order
+    // 3) Procesar cada order (aunque típicamente será solo una)
     console.log(`=== PROCESSING ${orders.length} ORDERS ===`);
     const results = [];
     
@@ -115,20 +115,26 @@ export default async function handler(req, res) {
       console.log(`-- Processing Order ${i+1}:`, JSON.stringify(order, null, 2));
       
       try {
+        // Validar que la orden tenga líneas
+        if (!order.order_line || order.order_line.length === 0) {
+          throw new Error('Order must have at least one order line');
+        }
+
         // Prepare order data with required fields
         const orderData = {
           partner_id: order.partner_id || 1, // Default partner if not specified
-          order_line: order.order_line?.map(line => [0, 0, {
+          order_line: order.order_line.map(line => [0, 0, {
             product_id: line.product_id || 1,
             product_uom_qty: line.product_uom_qty || 1,
             price_unit: line.price_unit || 0,
             name: line.name || 'Imported Product' // Product name is often required
-          }]) || [],
-          note: order.note || 'Imported from Excel',
+          }]),
+          note: order.note || 'Imported from Excel - AUX_IMPORT sheet',
           state: 'draft' // Ensure it starts as draft
         };
         
         console.log(`-- Prepared Order Data ${i+1}:`, JSON.stringify(orderData, null, 2));
+        console.log(`-- Order has ${orderData.order_line.length} lines`);
         
         const orderId = await new Promise((resolve, reject) => {
           models.methodCall('execute_kw', [
@@ -148,8 +154,13 @@ export default async function handler(req, res) {
           });
         });
         
-        console.log(`✅ Created sale.order ID=${orderId}`);
-        results.push({ index: i, success: true, orderId });
+        console.log(`✅ Created sale.order ID=${orderId} with ${orderData.order_line.length} lines`);
+        results.push({ 
+          index: i, 
+          success: true, 
+          orderId,
+          orderLines: orderData.order_line.length
+        });
         
       } catch (err) {
         console.error(`❌ Order ${i+1} error:`, err.message);
@@ -165,12 +176,19 @@ export default async function handler(req, res) {
 
     // 4) Respuesta final
     const successful = results.filter(r => r.success).length;
+    const totalLines = results
+      .filter(r => r.success)
+      .reduce((sum, r) => sum + (r.orderLines || 0), 0);
+    
     return res.status(200).json({
-      success: true,
+      success: successful > 0,
       processed: orders.length,
       successful,
       results,
-      message: `Processed ${successful} of ${orders.length} orders`,
+      totalOrderLines: totalLines,
+      message: successful > 0 
+        ? `Successfully created ${successful} order(s) with ${totalLines} total lines`
+        : 'No orders were created successfully',
       uid: uid // Include UID for debugging
     });
 
