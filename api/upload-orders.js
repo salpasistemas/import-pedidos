@@ -1,7 +1,18 @@
 // api/upload-orders.js
-import xmlrpc from 'xmlrpc';
-
 export default async function handler(req, res) {
+  // Bloque de carga segura de xmlrpc
+  let xmlrpc;
+  try {
+    xmlrpc = require('xmlrpc');
+  } catch (err) {
+    console.error('Error cargando xmlrpc:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'No se pudo cargar módulo xmlrpc',
+      details: err.message
+    });
+  }
+
   // CORS
   const allowedOrigins = [
     'https://salpasistemas.github.io',
