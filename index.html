@@ -273,9 +273,9 @@
             <button class="process-btn" id="processBtn" disabled onclick="processFile()">
                 Subir Pedidos
             </button>
-            <button class="reset-btn" id="resetBtn" onclick="resetUpload()" style="display: none;">
+            <!-- <button class="reset-btn" id="resetBtn" onclick="resetUpload()" style="display: none;">
                 Nuevo Archivo
-            </button>
+            </button> -->
         </div>
         
         <div class="status" id="status"></div>
@@ -298,7 +298,7 @@
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
         const processBtn = document.getElementById('processBtn');
-        const resetBtn = document.getElementById('resetBtn');
+        // const resetBtn = document.getElementById('resetBtn');
         const status = document.getElementById('status');
         const progressBar = document.getElementById('progressBar');
         const progressFill = document.getElementById('progressFill');
@@ -334,7 +334,7 @@
             `;
             processBtn.disabled = true;
             processBtn.innerHTML = 'Subir Pedidos';
-            resetBtn.style.display = 'none';
+            // resetBtn.style.display = 'none';
             hideStatus();
             progressBar.style.display = 'none';
             setProgress(0);
@@ -386,7 +386,7 @@
                 <div class="upload-hint">${file.name}</div>
             `;
             processBtn.disabled = false;
-            resetBtn.style.display = 'inline-block';
+            // resetBtn.style.display = 'inline-block';
             hideStatus();
         }
         
