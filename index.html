@@ -145,6 +145,22 @@
       cursor: not-allowed;
     }
 
+    .reset-btn {
+      background: #666;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 15px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-left: 10px;
+    }
+
+    .reset-btn:hover {
+      background: #555;
+    }
+
     .status {
       margin-top: 30px;
       padding: 15px;
@@ -168,12 +184,6 @@
     .status.processing {
       background: #fff8e1;
       color: #ef6c00;
-      border: 1px solid #ff9800;
-    }
-
-    .status.warning {
-      background: #fff3e0;
-      color: #e65100;
       border: 1px solid #ff9800;
     }
 
@@ -232,18 +242,15 @@
       overflow-y: auto;
     }
 
-    .sheet-info {
-      margin-top: 15px;
-      padding: 10px;
-      background: #f0f8ff;
-      border-radius: 8px;
-      font-size: 14px;
-      text-align: left;
-      border: 1px solid #b0d4f1;
-    }
-
     #fileInput {
       display: none;
+    }
+
+    .button-group {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-top: 20px;
     }
   </style>
 </head>
@@ -257,26 +264,25 @@
         <div class="upload-zone" id="uploadZone">
             <div class="upload-icon">📁</div>
             <div class="upload-text">Haz clic o arrastra tu archivo Excel</div>
-            <div class="upload-hint">Archivos .xlsx o .xls solamente</div>
+            <div class="upload-hint">Archivos .xlsx o .xls solamente<br>Buscará la hoja "AUX_IMPORT"</div>
         </div>
         
         <input type="file" id="fileInput" accept=".xlsx,.xls">
         
-        <button class="process-btn" id="processBtn" disabled onclick="processFile()">
-            Subir Pedidos
-        </button>
+        <div class="button-group">
+            <button class="process-btn" id="processBtn" disabled onclick="processFile()">
+                Subir Pedidos
+            </button>
+            <button class="reset-btn" id="resetBtn" onclick="resetUpload()" style="display: none;">
+                Nuevo Archivo
+            </button>
+        </div>
         
         <div class="status" id="status"></div>
         
         <div class="progress-bar" id="progressBar" style="display: none;">
             <div class="progress-fill" id="progressFill"></div>
         </div>
-
-        <div class="sheet-info" id="sheetInfo" style="display: none;"></div>
-        
-        <button class="process-btn secondary" id="newFileBtn" style="display: none; background: #999; margin-top: 10px;" onclick="resetUpload()">
-            Subir Nuevo Archivo
-        </button>
 
 <!-- <button class="toggle-debug" onclick="toggleDebug()">Log</button> -->
         <div class="debug-info" id="debugInfo"></div>
@@ -288,17 +294,15 @@
         
         let selectedFile = null;
         let debugMode = false;
-        let isProcessing = false;
         
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
         const processBtn = document.getElementById('processBtn');
-        const newFileBtn = document.getElementById('newFileBtn');
+        const resetBtn = document.getElementById('resetBtn');
         const status = document.getElementById('status');
         const progressBar = document.getElementById('progressBar');
         const progressFill = document.getElementById('progressFill');
         const debugInfo = document.getElementById('debugInfo');
-        const sheetInfo = document.getElementById('sheetInfo');
         
         function log(message, data = null) {
             console.log(message, data);
@@ -318,6 +322,23 @@
             if (!debugMode) {
                 debugInfo.innerHTML = '';
             }
+        }
+
+        function resetUpload() {
+            selectedFile = null;
+            uploadZone.classList.remove('file-selected');
+            uploadZone.innerHTML = `
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">Haz clic o arrastra tu archivo Excel</div>
+                <div class="upload-hint">Archivos .xlsx o .xls solamente<br>Buscará la hoja "AUX_IMPORT"</div>
+            `;
+            processBtn.disabled = true;
+            processBtn.innerHTML = 'Subir Pedidos';
+            resetBtn.style.display = 'none';
+            hideStatus();
+            progressBar.style.display = 'none';
+            setProgress(0);
+            fileInput.value = '';
         }
         
         // File upload handling
@@ -342,7 +363,7 @@
             handleFile(e.target.files[0]);
         });
         
-        async function handleFile(file) {
+        function handleFile(file) {
             if (!file) return;
             
             log('File selected:', {
@@ -357,92 +378,32 @@
                 return;
             }
             
-            // Validate that AUX_IMPORT sheet exists
-            try {
-                const workbook = await readWorkbook(file);
-                const sheetNames = workbook.SheetNames;
-                
-                log('Available sheets:', sheetNames);
-                
-                if (!sheetNames.includes('AUX_IMPORT')) {
-                    // Only show sheet info in case of error
-                    sheetInfo.innerHTML = `
-                        <strong>Error:</strong> No se encontró la hoja "AUX_IMPORT"<br>
-                        <strong>Hojas disponibles:</strong> ${sheetNames.join(', ')}
-                    `;
-                    sheetInfo.style.display = 'block';
-                    showStatus('error', '❌ El archivo no contiene la hoja "AUX_IMPORT"');
-                    return;
-                } else {
-                    // Hide sheet info on success
-                    sheetInfo.style.display = 'none';
-                }
-                
-                // Check if AUX_IMPORT has data
-                const worksheet = workbook.Sheets['AUX_IMPORT'];
-                const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:A1');
-                const rowCount = range.e.r - range.s.r + 1;
-                
-                if (rowCount <= 1) {
-                    showStatus('warning', '⚠️ La hoja "AUX_IMPORT" parece estar vacía o solo contiene encabezados');
-                    return;
-                }
-                
-                log('AUX_IMPORT sheet validation:', {
-                    hasSheet: true,
-                    rowCount: rowCount,
-                    range: worksheet['!ref']
-                });
-                
-                selectedFile = file;
-                uploadZone.classList.add('file-selected');
-                uploadZone.innerHTML = `
-                    <div class="upload-icon">✅</div>
-                    <div class="upload-text">Archivo válido</div>
-                    <div class="upload-hint">${file.name} - ${rowCount-1} líneas de pedido</div>
-                `;
-                processBtn.disabled = false;
-                hideStatus();
-                
-            } catch (error) {
-                log('File validation error:', error);
-                showStatus('error', '❌ Error al validar el archivo: ' + error.message);
-                return;
-            }
-        }
-        
-        function readWorkbook(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    try {
-                        const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: 'array' });
-                        resolve(workbook);
-                    } catch (error) {
-                        reject(new Error('No se pudo leer el archivo Excel: ' + error.message));
-                    }
-                };
-                reader.onerror = () => reject(new Error('Error al leer el archivo'));
-                reader.readAsArrayBuffer(file);
-            });
+            selectedFile = file;
+            uploadZone.classList.add('file-selected');
+            uploadZone.innerHTML = `
+                <div class="upload-icon">✅</div>
+                <div class="upload-text">Archivo seleccionado</div>
+                <div class="upload-hint">${file.name}</div>
+            `;
+            processBtn.disabled = false;
+            resetBtn.style.display = 'inline-block';
+            hideStatus();
         }
         
         async function processFile() {
-            if (!selectedFile || isProcessing) return;
+            if (!selectedFile) return;
             
             log('Starting file processing...');
             
-            isProcessing = true;
             processBtn.disabled = true;
             processBtn.innerHTML = '<div class="spinner"></div>Procesando...';
-            showStatus('processing', '⏳ Leyendo hoja AUX_IMPORT...');
+            showStatus('processing', '⏳ Leyendo archivo Excel...');
             progressBar.style.display = 'block';
             setProgress(10);
             
             try {
-                // Read Excel file - specifically AUX_IMPORT sheet
-                log('Reading AUX_IMPORT sheet...');
+                // Read Excel file - specifically look for AUX_IMPORT sheet
+                log('Reading Excel file...');
                 const excelData = await readExcelFile(selectedFile);
                 log('Excel data read successfully:', {
                     rows: excelData.length,
@@ -453,21 +414,21 @@
                 setProgress(30);
                 showStatus('processing', '📝 Preparando pedido...');
                 
-                // Convert to single Odoo order with multiple lines
-                log('Converting to single Odoo order...');
-                const order = parseExcelToSingleOrder(excelData);
+                // Convert to Odoo format - single order with multiple lines
+                log('Converting to Odoo format...');
+                const order = parseExcelToOrder(excelData);
                 log('Order prepared:', order);
                 
                 setProgress(50);
-                showStatus('processing', `🚀 Subiendo pedido con ${excelData.length} líneas a Odoo...`);
+                showStatus('processing', `🚀 Subiendo pedido con ${order.order_line.length} líneas a Odoo...`);
                 
                 // Send to backend
                 log('Sending request to API:', {
                     url: API_URL,
-                    orderLines: excelData.length
+                    orderLines: order.order_line.length
                 });
                 
-                const requestBody = { orders: [order] }; // Single order in array
+                const requestBody = { orders: [order] }; // Single order in array format
                 log('Request body prepared:', requestBody);
                 
                 const response = await fetch(API_URL, {
@@ -511,22 +472,15 @@
                 setProgress(100);
                 
                 if (result.success) {
-                    const message = `¡Listo! Pedido creado correctamente con ${excelData.length} líneas`;
+                    const message = `¡Listo! Pedido creado con ${order.order_line.length} líneas`;
                     showStatus('success', message);
                     log('Process completed successfully:', result);
-                    
-                    // Show option to upload new file
-                    newFileBtn.style.display = 'inline-block';
-                    processBtn.innerHTML = 'Procesar Mismo Archivo';
-                    processBtn.disabled = false;
                 } else {
                     const message = `❌ Error: ${result.error}`;
                     showStatus('error', message);
                     if (result.results) {
                         log('Failed results:', result.results.filter(r => !r.success));
                     }
-                    processBtn.innerHTML = 'Reintentar';
-                    processBtn.disabled = false;
                 }
                 
             } catch (error) {
@@ -536,15 +490,13 @@
                 });
                 showStatus('error', `❌ Error: ${error.message}`);
                 setProgress(0);
-                processBtn.innerHTML = 'Reintentar';
-                processBtn.disabled = false;
             }
             
-            isProcessing = false;
-            
-            // Hide progress bar after a moment
+            // Reset button after delay
             setTimeout(() => {
-                progressBar.style.display = 'none';
+                processBtn.disabled = false;
+                processBtn.innerHTML = 'Subir Pedidos';
+                // Don't hide progress bar automatically - let user decide to reset
             }, 3000);
         }
         
@@ -556,20 +508,23 @@
                         const data = new Uint8Array(e.target.result);
                         const workbook = XLSX.read(data, { type: 'array' });
                         
-                        // Check if AUX_IMPORT sheet exists
+                        log('Available sheets:', workbook.SheetNames);
+                        
+                        // Look specifically for AUX_IMPORT sheet
                         if (!workbook.SheetNames.includes('AUX_IMPORT')) {
-                            throw new Error('La hoja "AUX_IMPORT" no fue encontrada en el archivo');
+                            throw new Error('No se encontró la hoja "AUX_IMPORT" en el archivo Excel');
                         }
                         
-                        // Read only the AUX_IMPORT sheet
                         const worksheet = workbook.Sheets['AUX_IMPORT'];
                         const jsonData = XLSX.utils.sheet_to_json(worksheet);
                         
-                        log('AUX_IMPORT sheet processed:', {
-                            totalSheets: workbook.SheetNames.length,
-                            allSheets: workbook.SheetNames,
-                            processedSheet: 'AUX_IMPORT',
-                            dataRows: jsonData.length
+                        if (jsonData.length === 0) {
+                            throw new Error('La hoja "AUX_IMPORT" está vacía');
+                        }
+                        
+                        log('AUX_IMPORT sheet data loaded:', {
+                            rows: jsonData.length,
+                            columns: Object.keys(jsonData[0] || {})
                         });
                         
                         resolve(jsonData);
@@ -582,22 +537,28 @@
             });
         }
         
-        function parseExcelToSingleOrder(data) {
+        function parseExcelToOrder(data) {
             log('Parsing Excel data to single order format...');
             
-            if (!data || data.length === 0) {
-                throw new Error('No hay datos para procesar');
-            }
+            // Create a single order with multiple lines
+            const order = {
+                partner_id: parseInt(data[0]['Cliente ID']) || 1, // Take partner from first row
+                order_line: [],
+                note: `Importado desde Excel - Hoja AUX_IMPORT con ${data.length} líneas`
+            };
             
-            // Convert each row to an order line
-            const orderLines = data.map((row, index) => {
+            // Process each row as an order line
+            data.forEach((row, index) => {
                 try {
-                    return {
+                    const orderLine = {
                         product_id: parseInt(row['Producto ID']) || 1,
                         product_uom_qty: parseFloat(row['Cantidad']) || 1,
                         price_unit: parseFloat(row['Precio']) || 0,
-                        name: String(row['Descripción'] || row['Producto'] || `Línea ${index + 1}`)
+                        name: row['Descripción'] || row['Producto'] || `Producto línea ${index + 1}`
                     };
+                    
+                    order.order_line.push(orderLine);
+                    log(`Order line ${index + 1} parsed:`, orderLine);
                 } catch (error) {
                     const errorMsg = `Error en fila ${index + 2}: formato incorrecto - ${error.message}`;
                     log('Parse error:', errorMsg);
@@ -605,45 +566,12 @@
                 }
             });
             
-            // Create single order with all lines
-            const order = {
-                partner_id: parseInt(data[0]['Cliente ID']) || 1, // Take client from first row
-                order_line: orderLines.map(line => [0, 0, line]), // Odoo format for new lines
-                note: `Importado desde Excel - ${data.length} líneas`,
-                state: 'draft'
-            };
+            if (order.order_line.length === 0) {
+                throw new Error('No se pudieron procesar las líneas del pedido');
+            }
             
-            log('Single order created:', order);
+            log('Final order structure:', order);
             return order;
-        }
-        
-        function resetUpload() {
-            selectedFile = null;
-            isProcessing = false;
-            
-            // Reset upload zone
-            uploadZone.classList.remove('file-selected');
-            uploadZone.innerHTML = `
-                <div class="upload-icon">📁</div>
-                <div class="upload-text">Haz clic o arrastra tu archivo Excel</div>
-                <div class="upload-hint">Archivos .xlsx o .xls solamente</div>
-            `;
-            
-            // Reset buttons
-            processBtn.innerHTML = 'Subir Pedidos';
-            processBtn.disabled = true;
-            newFileBtn.style.display = 'none';
-            
-            // Clear file input
-            fileInput.value = '';
-            
-            // Hide status and progress
-            hideStatus();
-            progressBar.style.display = 'none';
-            setProgress(0);
-            sheetInfo.style.display = 'none';
-            
-            log('Upload reset - ready for new file');
         }
         
         function showStatus(type, message) {
