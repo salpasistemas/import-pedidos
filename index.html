@@ -198,7 +198,7 @@
     </div>
 
     <script>
-        // Replace with your Vercel backend URL
+        // Replace with your actual Vercel backend URL
         const API_URL = 'https://import-pedidos.vercel.app/';
         
         let selectedFile = null;
@@ -272,6 +272,9 @@
                 showStatus('processing', `🚀 Subiendo ${orders.length} pedidos a Odoo...`);
                 
                 // Send to backend
+                console.log('Sending to:', API_URL);
+                console.log('Orders:', orders);
+                
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: {
@@ -280,7 +283,23 @@
                     body: JSON.stringify({ orders })
                 });
                 
-                const result = await response.json();
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+                
+                // Check if response is ok
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                // Check if response has content
+                const responseText = await response.text();
+                console.log('Response text:', responseText);
+                
+                if (!responseText) {
+                    throw new Error('Empty response from server');
+                }
+                
+                const result = JSON.parse(responseText);
                 setProgress(100);
                 
                 if (result.success) {
