@@ -115,6 +115,9 @@
             padding: 15px;
             border-radius: 10px;
             display: none;
+            text-align: left;
+            max-height: 200px;
+            overflow-y: auto;
         }
         
         .status.success {
@@ -171,6 +174,26 @@
         #fileInput {
             display: none;
         }
+
+        .debug-info {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            font-size: 12px;
+            text-align: left;
+            display: none;
+        }
+
+        .toggle-debug {
+            margin-top: 10px;
+            padding: 5px 10px;
+            background: #ddd;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -195,6 +218,9 @@
         <div class="progress-bar" id="progressBar" style="display: none;">
             <div class="progress-fill" id="progressFill"></div>
         </div>
+
+        <button class="toggle-debug" onclick="toggleDebug()">Toggle Debug Info</button>
+        <div class="debug-info" id="debugInfo"></div>
     </div>
 
     <script>
@@ -202,6 +228,7 @@
         const API_URL = 'https://import-pedidos.vercel.app/api/upload-orders';
         
         let selectedFile = null;
+        let debugMode = false;
         
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
@@ -209,6 +236,27 @@
         const status = document.getElementById('status');
         const progressBar = document.getElementById('progressBar');
         const progressFill = document.getElementById('progressFill');
+        const debugInfo = document.getElementById('debugInfo');
+        
+        function log(message, data = null) {
+            console.log(message, data);
+            if (debugMode) {
+                const timestamp = new Date().toLocaleTimeString();
+                debugInfo.innerHTML += `<div><strong>[${timestamp}]</strong> ${message}</div>`;
+                if (data) {
+                    debugInfo.innerHTML += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                }
+                debugInfo.scrollTop = debugInfo.scrollHeight;
+            }
+        }
+
+        function toggleDebug() {
+            debugMode = !debugMode;
+            debugInfo.style.display = debugMode ? 'block' : 'none';
+            if (!debugMode) {
+                debugInfo.innerHTML = '';
+            }
+        }
         
         // File upload handling
         uploadZone.addEventListener('click', () => fileInput.click());
@@ -235,6 +283,13 @@
         function handleFile(file) {
             if (!file) return;
             
+            log('File selected:', {
+                name: file.name,
+                size: file.size,
+                type: file.type,
+                lastModified: new Date(file.lastModified)
+            });
+            
             if (!file.name.match(/\.(xlsx|xls)$/)) {
                 showStatus('error', '❌ Por favor selecciona un archivo Excel (.xlsx o .xls)');
                 return;
@@ -254,6 +309,8 @@
         async function processFile() {
             if (!selectedFile) return;
             
+            log('Starting file processing...');
+            
             processBtn.disabled = true;
             processBtn.innerHTML = '<div class="spinner"></div>Procesando...';
             showStatus('processing', '⏳ Leyendo archivo Excel...');
@@ -262,53 +319,94 @@
             
             try {
                 // Read Excel file
+                log('Reading Excel file...');
                 const excelData = await readExcelFile(selectedFile);
+                log('Excel data read successfully:', {
+                    rows: excelData.length,
+                    firstRow: excelData[0],
+                    columns: Object.keys(excelData[0] || {})
+                });
+                
                 setProgress(30);
                 showStatus('processing', '📝 Preparando pedidos...');
                 
                 // Convert to Odoo format
+                log('Converting to Odoo format...');
                 const orders = parseExcelToOrders(excelData);
+                log('Orders prepared:', {
+                    count: orders.length,
+                    sample: orders[0]
+                });
+                
                 setProgress(50);
                 showStatus('processing', `🚀 Subiendo ${orders.length} pedidos a Odoo...`);
                 
                 // Send to backend
-                console.log('Sending to:', API_URL);
-                console.log('Orders:', orders);
+                log('Sending request to API:', {
+                    url: API_URL,
+                    ordersCount: orders.length
+                });
+                
+                const requestBody = { orders };
+                log('Request body prepared:', requestBody);
                 
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ orders })
+                    body: JSON.stringify(requestBody)
                 });
                 
-                console.log('Response status:', response.status);
-                console.log('Response headers:', response.headers);
+                log('Response received:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries())
+                });
                 
                 // Check if response is ok
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    const errorText = await response.text();
+                    log('Response error text:', errorText);
+                    throw new Error(`HTTP error! status: ${response.status}\nResponse: ${errorText}`);
                 }
                 
                 // Check if response has content
                 const responseText = await response.text();
-                console.log('Response text:', responseText);
+                log('Response text received:', responseText);
                 
                 if (!responseText) {
                     throw new Error('Empty response from server');
                 }
                 
-                const result = JSON.parse(responseText);
+                let result;
+                try {
+                    result = JSON.parse(responseText);
+                    log('Response parsed successfully:', result);
+                } catch (parseError) {
+                    log('JSON parse error:', parseError);
+                    throw new Error(`Invalid JSON response: ${responseText}`);
+                }
+                
                 setProgress(100);
                 
                 if (result.success) {
-                    showStatus('success', `🎉 ¡Éxito! ${result.successful} de ${result.processed} pedidos subidos correctamente`);
+                    const message = `🎉 ¡Éxito! ${result.successful} de ${result.processed} pedidos subidos correctamente`;
+                    showStatus('success', message);
+                    log('Process completed successfully:', result);
                 } else {
-                    showStatus('error', `❌ Error: ${result.error}`);
+                    const message = `❌ Error: ${result.error}`;
+                    showStatus('error', message);
+                    if (result.results) {
+                        log('Failed results:', result.results.filter(r => !r.success));
+                    }
                 }
                 
             } catch (error) {
+                log('Process error:', {
+                    message: error.message,
+                    stack: error.stack
+                });
                 showStatus('error', `❌ Error: ${error.message}`);
                 setProgress(0);
             }
@@ -333,7 +431,7 @@
                         const jsonData = XLSX.utils.sheet_to_json(worksheet);
                         resolve(jsonData);
                     } catch (error) {
-                        reject(new Error('No se pudo leer el archivo Excel'));
+                        reject(new Error('No se pudo leer el archivo Excel: ' + error.message));
                     }
                 };
                 reader.onerror = () => reject(new Error('Error al leer el archivo'));
@@ -342,11 +440,13 @@
         }
         
         function parseExcelToOrders(data) {
+            log('Parsing Excel data to orders format...');
+            
             // Customize this based on your Excel structure
             // Example: assuming columns like "Cliente", "Producto", "Cantidad", "Precio"
             return data.map((row, index) => {
                 try {
-                    return {
+                    const order = {
                         partner_id: parseInt(row['Cliente ID']) || 1,
                         order_line: [{
                             product_id: parseInt(row['Producto ID']) || 1,
@@ -355,15 +455,20 @@
                         }],
                         note: `Importado desde Excel - Fila ${index + 2}`
                     };
+                    
+                    log(`Order ${index + 1} parsed:`, order);
+                    return order;
                 } catch (error) {
-                    throw new Error(`Error en fila ${index + 2}: formato incorrecto`);
+                    const errorMsg = `Error en fila ${index + 2}: formato incorrecto - ${error.message}`;
+                    log('Parse error:', errorMsg);
+                    throw new Error(errorMsg);
                 }
             });
         }
         
         function showStatus(type, message) {
             status.className = `status ${type}`;
-            status.textContent = message;
+            status.innerHTML = message;
             status.style.display = 'block';
         }
         
@@ -374,6 +479,13 @@
         function setProgress(percent) {
             progressFill.style.width = percent + '%';
         }
+
+        // Initial log
+        log('Application initialized', {
+            apiUrl: API_URL,
+            userAgent: navigator.userAgent,
+            timestamp: new Date().toISOString()
+        });
     </script>
 </body>
 </html>
