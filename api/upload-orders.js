@@ -123,6 +123,7 @@ export default async function handler(req, res) {
         // Prepare order data with required fields
         const orderData = {
           partner_id: order.partner_id || 1, // Default partner if not specified
+          user_id: false,
           order_line: order.order_line.map(line => [0, 0, {
             product_id: line.product_id || 1,
             product_uom_qty: line.product_uom_qty || 1,
